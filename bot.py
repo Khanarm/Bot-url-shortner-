@@ -53,6 +53,7 @@ async def create_short(message: Message, state: FSMContext):
         alias = ""
 
     try:
+        print("ALIAS =", alias)
         response = requests.post(
             API_URL,
             json={
@@ -60,6 +61,7 @@ async def create_short(message: Message, state: FSMContext):
                 "alias": alias
             }
         )
+        print(response.text)
 
         data = response.json()
 
