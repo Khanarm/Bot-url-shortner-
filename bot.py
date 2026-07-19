@@ -1,87 +1,50 @@
-import asyncio
-import requests
+@api_bp.route("/shorten", methods=["POST"])
+def shorten_api():
 
-from aiogram import Bot, Dispatcher
-from aiogram.types import Message
-from aiogram.filters import Command
-from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import StatesGroup, State
+    data = request.get_json()
+    print("REQUEST DATA =", data)
 
-from config import BOT_TOKEN, API_URL
+    if not data or "url" not in data:
+        return jsonify({
+            "success": False,
+            "message": "URL missing"
+        }), 400
 
+    original_url = data["url"].strip()
 
-bot = Bot(BOT_TOKEN)
-dp = Dispatcher(storage=MemoryStorage())
+    alias = data.get("alias", "").strip()
+    print("ALIAS RECEIVED =", alias)
 
+    if alias:
+        print("USING ALIAS")
+        exists = URL.query.filter_by(short_code=alias).first()
 
-class Shortener(StatesGroup):
-    waiting_alias = State()
+        if exists:
+            print("ALIAS ALREADY EXISTS")
+            return jsonify({
+                "success": False,
+                "message": "Alias already exists"
+            }), 400
 
+        code = alias
+    else:
+        print("GENERATING RANDOM CODE")
+        code = generate_code()
 
-@dp.message(Command("start"))
-async def start(message: Message):
-    await message.answer(
-        "👋 Welcome!\n\n"
-        "Mujhe URL bhejo, phir main alias puchunga."
+    print("FINAL CODE =", code)
+
+    new_url = URL(
+        original_url=original_url,
+        short_code=code
     )
 
+    db.session.add(new_url)
+    db.session.commit()
 
-@dp.message(lambda m: m.text.startswith(("http://", "https://")))
-async def get_url(message: Message, state: FSMContext):
-    await state.update_data(url=message.text)
+    print("SAVED TO DB")
 
-    await message.answer(
-        "✏️ Alias bhejo.\n\n"
-        "Example:\n"
-        "your brand name.\n\n"
-        "Ya 'skip' likho."
-    )
-
-    await state.set_state(Shortener.waiting_alias)
-
-
-@dp.message(Shortener.waiting_alias)
-async def create_short(message: Message, state: FSMContext):
-
-    data = await state.get_data()
-    url = data["url"]
-
-    alias = message.text.strip()
-
-    if alias.lower() == "skip":
-        alias = ""
-
-    try:
-        print("ALIAS =", alias)
-        response = requests.post(
-            API_URL,
-            json={
-                "url": url,
-                "alias": alias
-            }
-        )
-        print("STATUS =", response.status_code)
-        print("RESPONSE =", response.text)
-
-        data = response.json()
-
-        if data.get("success"):
-            await message.answer(
-                f"✅ Short Link\n\n{data['short_url']}"
-            )
-        else:
-            await message.answer("❌ Link create nahi hua.")
-
-    except Exception:
-        await message.answer("⚠️ Server error")
-
-    await state.clear()
-
-
-async def main():
-    await dp.start_polling(bot)
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+    return jsonify({
+        "success": True,
+        "short_code": code,
+        "short_url": request.host_url.rstrip("/") + "/" + code
+    })
