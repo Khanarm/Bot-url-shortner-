@@ -61,7 +61,8 @@ async def create_short(message: Message, state: FSMContext):
                 "alias": alias
             }
         )
-        print(response.text)
+        print("STATUS =", response.status_code)
+        print("RESPONSE =", response.text)
 
         data = response.json()
 
