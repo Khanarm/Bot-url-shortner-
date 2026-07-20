@@ -1,5 +1,6 @@
 import asyncio
-import requests
+import re
+import aiohttp
 
 from aiogram import Bot, Dispatcher
 from aiogram.types import Message
@@ -8,7 +9,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 
-from config import BOT_TOKEN, API_URL
+from config import BOT_TOKEN, API_URL, MAX_LINKS
 
 
 bot = Bot(BOT_TOKEN)
@@ -19,79 +20,133 @@ class Shortener(StatesGroup):
     waiting_alias = State()
 
 
-@dp.message(Command("start"))
-async def start(message: Message):
-    await message.answer(
-        "👋 Welcome!\n\n"
-        "Mujhe URL bhejo, phir main alias puchunga."
-    )
+URL_REGEX = re.compile(
+    r"https?://[^\s]+",
+    re.IGNORECASE
+)
 
 
-@dp.message(lambda m: m.text.startswith(("http://", "https://")))
-async def get_url(message: Message, state: FSMContext):
-    await state.update_data(url=message.text)
-
-    await message.answer(
-        "✏️ Alias bhejo.\n\n"
-        "Example:\n"
-        "movie\n\n"
-        "Ya 'skip' likho."
-    )
-
-    await state.set_state(Shortener.waiting_alias)
-
-
-@dp.message(Shortener.waiting_alias)
-async def create_short(message: Message, state: FSMContext):
-
-    data = await state.get_data()
-    url = data["url"]
-
-    alias = message.text.strip()
-
-    if alias.lower() == "skip":
-        alias = ""
-
+async def shorten_url(session, url, alias):
     try:
-        print("=" * 60)
-        print("URL =", url)
-        print("ALIAS =", alias)
-        print("API_URL =", API_URL)
-
-        response = requests.post(
+        async with session.post(
             API_URL,
             json={
                 "url": url,
                 "alias": alias
             }
+        ) as response:
+
+            data = await response.json()
+
+            if data.get("success"):
+                return url, data["short_url"]
+
+            return url, url
+
+    except Exception:
+        return url, url
+
+
+@dp.message(Command("start"))
+async def start(message: Message):
+    await message.answer(
+        "👋 Welcome!\n\n"
+        "📌 Ek message me maximum 40 links bhejo.\n"
+        "✏️ Main sirf ek baar alias puchunga.\n"
+        "🚀 Fir sab links short karke same message wapas bhej dunga."
+)
+
+@dp.message()
+async def receive_message(message: Message, state: FSMContext):
+
+    if not message.text:
+        return
+
+    original_text = message.text
+
+    urls = URL_REGEX.findall(original_text)
+
+    if len(urls) == 0:
+        await message.answer(
+            "❌ Is message me koi link nahi mila."
         )
+        return
 
-        print("STATUS =", response.status_code)
-        print("HEADERS =", dict(response.headers))
-        print("RESPONSE =", response.text)
-        print("=" * 60)
+    if len(urls) > MAX_LINKS:
+        await message.answer(
+            f"❌ Ek message me maximum {MAX_LINKS} links hi short kiye ja sakte hain."
+        )
+        return
 
-        data = response.json()
+    await state.update_data(
+        original_text=original_text,
+        urls=urls
+    )
 
-        if data.get("success"):
-            await message.answer(
-                f"✅ Short Link\n\n{data['short_url']}"
+    await message.answer(
+        f"🔗 Total Links: {len(urls)}\n\n"
+        "✏️ Ab alias bhejo.\n\n"
+        "Example:\n"
+        "ckdrama"
+    )
+
+    await state.set_state(Shortener.waiting_alias)
+
+@dp.message(Shortener.waiting_alias)
+async def receive_alias(message: Message, state: FSMContext):
+    alias = message.text.strip()
+
+    if " " in alias:
+        await message.answer("❌ Alias me space allowed nahi hai.")
+        return
+
+    data = await state.get_data()
+
+    original_text = data["original_text"]
+    urls = data["urls"]
+
+    new_text = original_text
+
+    for i, url in enumerate(urls):
+        current_alias = alias if i == 0 else f"{alias}{i+1}"
+
+        try:
+            response = requests.post(
+                f"{API_BASE}/api/shorten",
+                json={
+                    "url": url,
+                    "alias": current_alias
+                },
+                timeout=20
             )
-        else:
-            await message.answer(
-                f"❌ {data.get('message', 'Link create nahi hua.')}"
-            )
 
-    except Exception as e:
-        print("ERROR =", e)
-        await message.answer("⚠️ Server error")
+            if response.status_code != 200:
+                await message.answer(
+                    f"❌ Link short nahi hua.\nAlias: {current_alias}"
+                )
+                await state.clear()
+                return
+
+            result = response.json()
+
+            short_url = result.get("short_url")
+
+            if not short_url:
+                await message.answer("❌ API error.")
+                await state.clear()
+                return
+
+            new_text = new_text.replace(url, short_url, 1)
+
+        except Exception as e:
+            await message.answer(f"❌ Error:\n{e}")
+            await state.clear()
+            return
+
+    await message.answer(
+        "✅ Sabhi links successfully short ho gaye:\n\n"
+        f"{new_text}"
+    )
 
     await state.clear()
 
-
-async def main():
-    await dp.start_polling(bot)
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
