@@ -77,3 +77,52 @@ async def start(message: Message):
         "🔗 Message me jitne links honge sab short kar dunga.\n"
         "📝 Text aur emoji bilkul same rahenge."
     )
+
+@dp.message(F.text)
+async def process_message(message: Message):
+
+    processing = await message.reply(
+        "⏳ Processing links..."
+    )
+
+    try:
+
+        result = await replace_links(message.text)
+
+        if result is None:
+            await processing.edit_text(
+                "❌ No links found."
+            )
+            return
+
+        # Telegram message limit
+        if len(result) <= 4096:
+
+            await processing.edit_text(result)
+
+        else:
+
+            # Agar message bahut bada ho
+            for i in range(0, len(result), 4096):
+                await message.answer(
+                    result[i:i + 4096]
+                )
+
+            await processing.delete()
+
+    except Exception as e:
+
+        await processing.edit_text(
+            f"❌ Error:\n{e}"
+        )
+
+
+async def main():
+
+    print("✅ URL Shortener Bot Started")
+
+    await dp.start_polling(bot)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
