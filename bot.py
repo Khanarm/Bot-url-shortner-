@@ -22,7 +22,7 @@ async def shorten_url(session, url):
         async with session.post(
             API_URL,
             json={
-                "url": urls,
+                "url": url,
                 "suffix": "ckdrama"
             },
             timeout=20
