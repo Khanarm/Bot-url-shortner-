@@ -5,6 +5,7 @@ import aiohttp
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart
 from aiogram.types import Message
+from config import BOT_TOKEN, API_URL, BACKUP_CHANNEL_ID
 
 from config import BOT_TOKEN, API_URL
 
@@ -87,6 +88,15 @@ async def process_message(message: Message):
     processing = await message.reply(
         "⏳ Processing links..."
     )
+
+    # 👇 Ye yaha add karo
+    backup_msg = await bot.copy_message(
+        chat_id=BACKUP_CHANNEL_ID,
+        from_chat_id=message.chat.id,
+        message_id=message.message_id
+    )
+
+    backup_message_id = backup_msg.message_id
 
     try:
 
